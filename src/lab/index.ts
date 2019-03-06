@@ -17,7 +17,10 @@ import { GatherModelRegistry, getGatherModelForActiveNotebook } from './gather-r
 import { NotifactionExtension as NotificationExtension } from './notification';
 import { ResultsHighlighter } from './results';
 //import {Widget} from '@phoshpor/widgets';
-import { Widget } from '@phosphor/widgets';
+import {CodeVersion} from '../packages/codeversion';
+import {SlicedCellModel} from '../packages/slicedcell'
+import * as $ from "jquery";
+import {Widget} from '@phosphor/widgets';
 import '../../style/index.css';
 import '../../style/lab-vars.css';
 import { Clipboard } from './gather-actions';
@@ -144,8 +147,9 @@ function activateExtension(app: JupyterLab, palette: ICommandPalette, notebooks:
         }
     });
 
-    console.log("h1")
+
     addCommand('gather:graveyard', 'View Graveyward', () => {
+
         let gatherModel = getGatherModelForActiveNotebook(notebooks, gatherModelRegistry);
         if (gatherModel == null) return;
 
@@ -153,62 +157,148 @@ function activateExtension(app: JupyterLab, palette: ICommandPalette, notebooks:
         widget.id = 'graveyard-jupyterlab';
         widget.title.label = 'Graveyard';
         widget.title.closable = true;
+
+        /*
+            <div class="divThumbnails">
+                <div class="filterWrapper">
+                    <div class="filterTitle"></div>
+                    <div class="filterArea"></div>
+                </div>
+                <div class="thumbnailArea">
+                </div>
+            </div>
+            <div class="divPreview">
+                <div class="previewImage"></div>
+                <div class="previewCode"></div>
+            </div>
+
+        */
+
+        let divLeft = document.createElement('div');
+        divLeft.className="divThumbnails";
+
+        let filterTitle = document.createElement('div');
+        filterTitle.className = "filterTitle";
+        filterTitle.append("Graveyard Filter");
+
+        let filterArea = document.createElement('div');
+        filterArea.className="filterArea";
+        filterArea.appendChild(filterTitle);
+
+        let filterWrapper = document.createElement('div');
+        filterWrapper.className="filterWrapper";
+        let filterSelect = document.createElement("select");
+        filterSelect.className="filterSelect";
+        filterSelect.innerHTML = "\
+                <option value='all'>all</option>\
+                <option value='error'>error</option>\
+                <option value='stream'>stream</option>\
+                <option value='image'>image</option>";
+        $(filterSelect).change(function() {
+            if ($(this).val() === 'all') {
+                $( '.outputWidget').show();
+            }
+            if ($(this).val() === 'error') {
+                $( '.outputWidget').hide();
+                $( '.error').show();
+            }
+            if ($(this).val() === 'stream') {
+                $( '.outputWidget').hide();
+                $( '.stream').show();
+            }
+            if ($(this).val() === 'image') {
+                $( '.outputWidget').hide();
+                $( '.image').show();
+            }
+        })
+        filterWrapper.appendChild(filterSelect);
+        filterArea.appendChild(filterWrapper);
+        divLeft.appendChild(filterArea);
+
+        let thumbnailArea = document.createElement('div');
+        thumbnailArea.className="thumbnailArea";
+
+        let divRight = document.createElement('div');
+        divRight.className="divPreview";
+        let previewImage = document.createElement('div');
+        previewImage.className='previewImage';
+        let previewCode = document.createElement('div');
+        previewCode.className='previewCode';
+        divRight.appendChild(previewImage);
+       
         let history = gatherModel.executionLog.cellExecutions;
         for (var i=0; i<history.length;i++){
+
             let cellOutput = history[i].cell.output;
+            //iterate and display all cell outputs associated with a cell
             if(cellOutput) {
-                console.log(cellOutput, cellOutput.length)
                 for (var x=0; x<cellOutput.length;x++) {
+
                     let convertedCellOutput = (cellOutput[x] as nbformat.IOutput);
-                  
                     let outputWidget = new DisplayData({
                         model:convertedCellOutput,
                         rendermime: new RenderMimeRegistry({initialFactories})
                     });
-                    //let outputWidget = new DisplayData(outputWidgetOptions);
+                    let cellWithOutput = history[i].cell;
+                    let executionLog = gatherModel.executionLog;
+                    let slice = executionLog.sliceLatestExecution(cellWithOutput);
 
-                    outputWidget.id = "output" + x.toString + i.toString
+                    $(outputWidget.node).click(function() {
+                        $(previewImage).empty();
+                        $(outputWidget.node).clone().appendTo('.previewImage');
+                        
+                        let cellWidgetModels = [];
+                        for (let cellSlice of slice.cellSlices) {
+                            let cellWidgetModel = new SlicedCellModel({
+                                cellPersistentId: cellSlice.cell.persistentId,
+                                executionCount: cellSlice.cell.executionCount,
+                                sourceCode: cellSlice.textSliceLines,
+                                diff: <any> undefined
+                            });
+                            cellWidgetModels.push(cellWidgetModel);
+                        }
+                        let codeVersion = new CodeVersion({
+                            model: {
+                                cells: cellWidgetModels,
+                                isLatest: true
+                            },
+                        })
 
-                    outputWidget.title.label="graveyard-jupyterlab"
-                    outputWidget.title.label ="graveyward"
-                    outputWidget.title.closable = true;
-                    app.shell.addToMainArea(outputWidget)
-                    app.shell.activateById(outputWidget.id);
+                        $(previewCode).empty();
+                        Widget.attach(codeVersion,previewCode);
 
+                    });
 
-
+                    outputWidget.id = "output" + x.toString + i.toString;
+                    if (cellOutput[x].output_type == "error"){
+                         outputWidget.addClass("error");
+                    }
+                    if (cellOutput[x].output_type == "stream"){
+                         outputWidget.addClass("stream");
+                    }
+                    if (cellOutput[x].output_type=="display_data"){
+                        outputWidget.addClass("image");
+                    }
+                    outputWidget.addClass("outputWidget");
+                    thumbnailArea.appendChild(outputWidget.node);
 
                 }
             }
 
-
         }
- 
 
+        //these are added to widget structure after the subwidgets are finalized
+        divRight.appendChild(previewCode);
+        divLeft.appendChild(thumbnailArea);
+        widget.node.appendChild(divLeft);
+        widget.node.appendChild(divRight);
+
+        app.shell.addToMainArea(widget);
+        app.shell.activateById(widget.id);
+ 
         console.log("We're in the graveyard right now!")
 
-        /*let widget: Widget = new Widget();
-        widget.id = 'graveyard-jupyterlab';
-        widget.title.label = 'Graveyard';
-        widget.title.closable = true;
 
-        let img = document.createElement('img');
-        widget.node.appendChild(img);
-
-        // Fetch info about a random comic
-        fetch('https:////egszlpbmle.execute-api.us-east-1.amazonaws.com/prod').then(response => {
-          return response.json();
-        }).then(data => {
-          img.src = data.img;
-          img.alt = data.title;
-          img.title = data.alt;
-        });
-        if (!widget.isAttached) {
-        // Attach the widget to the main work area if it's not there
-            app.shell.addToMainArea(widget);
-        }
-        // Activate the widget
-        app.shell.activateById(widget.id);*/
     });
 
     // TODO: re-enable this feature for Jupyter Lab.
